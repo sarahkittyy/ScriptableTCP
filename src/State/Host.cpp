@@ -3,7 +3,8 @@
 Host::Host(sf::RenderWindow& window,
 		   std::unique_ptr<State>& main_state,
 		   unsigned short port)
-	: State(window, main_state)
+	: State(window, main_state),
+	  mServer(port)
 {
 	//Initialize the script box.
 	TextEditor::LanguageDefinition lua_lang = TextEditor::LanguageDefinition::Lua();
@@ -12,28 +13,6 @@ Host::Host(sf::RenderWindow& window,
 
 	//Set the default code.
 	mScriptBox.SetText("-- A simple echo script.\n\nx = arg\nprint(x)");
-
-
-
-	//Attempt to bind to the port.
-	if (mListenerSocket.listen(port) != sf::Socket::Done)
-	{
-		error("Could not bind to port " + std::to_string(port) + "!");
-	}
-
-	//Set the listener as non-blocking.
-	mListenerSocket.setBlocking(false);
-}
-
-Host::~Host()
-{
-	//Clear & close all sockets.
-	mListenerSocket.close();
-	for (auto& sock : mClientSockets)
-	{
-		sock->disconnect();
-	}
-	mClientSockets.clear();
 }
 
 void Host::updateFrame()
@@ -47,76 +26,38 @@ void Host::updateFrame()
 	}
 	///////////
 	//Toggle read-only depending on the state of isRunning.
-	mScriptBox.SetReadOnly(isRunning);
+	mScriptBox.SetReadOnly(mServer.isRunning());
 
 	//Update the socket data string.
 	socket_data = stringifyInfo();
 
 	//Socket logic//
-	updateListener();
+	mServer.updateListener();
 
 	//Receive data that's ready to be received.
-	updateClients();
-}
+	mServer.updateClients();
 
-void Host::updateListener()
-{
-	//Check for new connections...
-	std::shared_ptr<sf::TcpSocket> sock(new sf::TcpSocket());
-
-	//If one is received.
-	if (mListenerSocket.accept(*sock) != sf::Socket::NotReady)
+	//If the server has data...
+	while (mServer.isData())
 	{
-		//Initialize it.
-		sock->setBlocking(false);
+		auto data			= mServer.popData();
+		std::string bytes   = data.second;
+		Server::Socket sock = data.first;
 
-		//Push the socket back.
-		mClientSockets.push_back(sock);
-	}
-}
-
-void Host::updateClients()
-{
-	// Iterate through all current connections.
-	for (auto& sock : mClientSockets)
-	{
-		//Create buffers for the data.
-		char data[100] = "";
-		std::size_t received;
-
-		sf::Socket::Status status = sock->receive(data, 100, received);
-		//If the socket is just disconnected...
-		if (status == sf::Socket::Disconnected)
+		//If we're running...
+		if (mServer.isRunning())
 		{
-			disconnectSocket(*sock);
-			continue;
+			//Split the string, and evaluate the lua.
+			std::string lua_result = evaluateLua(splitString(bytes));
+
+			//Send the result back through the socket.
+			mServer.sendData(lua_result, sock);
 		}
-		//If the socket has data to be accepted...
-		else if (status != sf::Socket::NotReady)
+		else
 		{
-			//Handle the sent data.
-			handleData(std::string(data), *sock);
+			//Send a filler message.
+			mServer.sendData("Server is online but not handing incoming data.\n", sock);
 		}
-	}
-}
-
-void Host::handleData(std::string data, sf::TcpSocket& sock)
-{
-	//If we're not running...
-	if (!isRunning)
-	{
-		//Send back a filler message.
-		sendData("Server is online but is not accepting connections.\nTry again later.\n",
-				 sock);
-	}
-	else
-	{
-		//Otherwise, evaluate the lua script with the given data.
-		//TODO: Split data into arguments.
-		std::string lua_result = evaluateLua(splitString(data));
-
-		//Return the script result.
-		sendData(lua_result, sock);
 	}
 }
 
@@ -124,11 +65,6 @@ std::string Host::evaluateLua(std::vector<std::string> args)
 {
 	//The stream to be printed to by the lua state.
 	std::stringstream output;
-
-	for (auto& i : args)
-	{
-		std::cout << i << "\n";
-	}
 
 	//Create the print function.
 	auto print = sol::overload(
@@ -235,51 +171,6 @@ std::vector<std::string> Host::splitString(std::string data)
 	return ret;
 }
 
-void Host::sendData(std::string data, sf::TcpSocket& sock)
-{
-	//Sent data size.
-	std::size_t sent;
-
-	//Attempt to send the data.
-	sf::Socket::Status status = sock.send(data.data(), data.size(), sent);
-
-	//Remove the socket if it's disconnected.
-	if (status == sf::Socket::Disconnected)
-	{
-		disconnectSocket(sock);
-	}
-	else   //Otherwise, if we have sent (some) of the message...
-	{
-		//If/While we have not sent the full message...
-		while (status == sf::Socket::Partial)
-		{
-			//Continue sending.
-			data   = data.substr(sent);
-			status = sock.send(data.data(), data.size(), sent);
-		}
-	}
-}
-
-void Host::disconnectSocket(sf::TcpSocket& sock)
-{
-	//Iterate over all clients.
-	for (auto client = mClientSockets.begin();
-		 client != mClientSockets.end();)
-	{
-		//If the socket's IP and Port match...
-		if ((*client)->getRemoteAddress() == sock.getRemoteAddress() && (*client)->getRemotePort() == sock.getRemotePort())
-		{
-			//Erase it and break.
-			mClientSockets.erase(client);
-			break;
-		}
-		else
-		{
-			++client;
-		}
-	}
-}
-
 void Host::error(std::string msg)
 {
 	//Reset to the error state.
@@ -295,7 +186,7 @@ std::string Host::stringifyInfo()
 
 	//The header..
 	stream << "Connected Clients:\n";
-	for (auto& sock : mClientSockets)
+	for (auto& sock : mServer.getClients())
 	{
 		//Append each connected client to the stream.
 		stream << sock->getRemoteAddress()
@@ -329,14 +220,15 @@ void Host::drawImGui()
 	if (ImGui::Button("<> Clear Script"))
 	{
 		mScriptBox.SetText("");
-		isRunning = false;
+		mServer.setRunning(false);
 	}
 
 	//Render the pause/play button.
-	std::string running_button = (isRunning) ? ("|| Pause") : ("> Start");
+	std::string running_button = (mServer.isRunning()) ? ("|| Pause") : ("> Start");
 	if (ImGui::Button(running_button.c_str()))
 	{
-		isRunning = !isRunning;
+		//Toggle
+		mServer.setRunning(!mServer.isRunning());
 	}
 
 	//Render the back button.

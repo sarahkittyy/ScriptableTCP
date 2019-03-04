@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cctype>
-#include <iostream>
 #include <memory>
 #include <sstream>
 #include <stdexcept>
@@ -20,11 +19,13 @@
 #include "State/MainMenu.hpp"
 #include "State/State.hpp"
 
+#include "Server.hpp"
+
 #include "sol/sol.hpp"
 
 /**
- * @brief Hosts the server, hosts the scripting box and manages server
- * connections.
+ * @brief Hosts the server, hosts the scripting box and
+ * managing the server instance.
  * 
  */
 class Host : public State
@@ -42,13 +43,7 @@ public:
 		 unsigned short port);
 
 	/**
-	 * @brief Destroy the Host object
-	 * 
-	 */
-	~Host();
-
-	/**
-	 * @brief Updates & parses socket info.
+	 * @brief Updates & parses server info.
 	 * 
 	 */
 	void updateFrame();
@@ -67,32 +62,10 @@ public:
 
 private:
 	/**
-	 * @brief Check the listener for new incoming connections.
+	 * @brief The server itself.
 	 * 
 	 */
-	void updateListener();
-
-	/**
-	 * @brief Iterate over all sockets and recieve data.
-	 * 
-	 */
-	void updateClients();
-
-	/**
-	 * @brief Handles an incoming string of data.
-	 * 
-	 * @param data The data recieved.
-	 * @param sock The socket it was received from.
-	 */
-	void handleData(std::string data, sf::TcpSocket& sock);
-
-	/**
-	 * @brief Sends a string of data safely to the socket.
-	 * 
-	 * @param data The data to send.
-	 * @param sock The socket to send it to.
-	 */
-	void sendData(std::string data, sf::TcpSocket& sock);
+	Server mServer;
 
 	/**
 	 * @brief Evaluates the current lua code with the given args.
@@ -103,57 +76,10 @@ private:
 	std::string evaluateLua(std::vector<std::string> args);
 
 	/**
-	 * @brief Splits a space-delimited string into a list
-	 * of arguments.
-	 * 
-	 * @param data The data to split.
-	 * @return std::vector<std::string> The split data. 
-	 */
-	std::vector<std::string> splitString(std::string data);
-
-	/**
-	 * @brief Disconnects a TCP socket.
-	 * 
-	 * @param sock The socket to disconnect.
-	 */
-	void disconnectSocket(sf::TcpSocket& sock);
-
-	/**
 	 * @brief Just calls the state to reset to error with the given message.
 	 * 
 	 */
 	void error(std::string msg);
-
-	/**
-	 * @brief Returns a string representing connection info.
-	 * 
-	 * @return std::string A string with connected client info.
-	 */
-	std::string stringifyInfo();
-
-	/**
-	 * @brief The main socket listener.
-	 * 
-	 */
-	sf::TcpListener mListenerSocket;
-
-	/**
-	 * @brief A vector of all connected clients.
-	 * 
-	 */
-	std::vector<std::shared_ptr<sf::TcpSocket>> mClientSockets;
-
-	/**
-	 * @brief Whether or not TCP data is being handled.
-	 * 
-	 */
-	bool isRunning = false;
-
-	/**
-	 * @brief True if the "Return to menu" button was pressed.
-	 * 
-	 */
-	bool wasMenuPressed = false;
 
 	/**
 	 * @brief The coding window.
@@ -166,4 +92,26 @@ private:
 	 * 
 	 */
 	std::string socket_data = "";
+
+	/**
+	 * @brief Returns a string representing connection info.
+	 * 
+	 * @return std::string A string with connected client info.
+	 */
+	std::string stringifyInfo();
+
+	/**
+	 * @brief Splits a space-delimited string into a list
+	 * of arguments.
+	 * 
+	 * @param data The data to split.
+	 * @return std::vector<std::string> The split data. 
+	 */
+	std::vector<std::string> splitString(std::string data);
+
+	/**
+	 * @brief True if the "Return to menu" button was pressed.
+	 * 
+	 */
+	bool wasMenuPressed = false;
 };
