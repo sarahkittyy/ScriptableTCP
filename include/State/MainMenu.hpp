@@ -7,6 +7,7 @@
 #include "imgui/imgui-SFML.h"
 #include "imgui/imgui.h"
 
+#include "State/Client.hpp"
 #include "State/HostInfo.hpp"
 #include "State/State.hpp"
 

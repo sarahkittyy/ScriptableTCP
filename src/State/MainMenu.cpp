@@ -10,7 +10,8 @@ void MainMenu::updateFrame()
 {
 	if (wasConnectPressed)
 	{
-		//Switch to the ConnectionInfo state.
+		//Switch to the Client state.
+		state().reset(new Client(window(), state()));
 	}
 	else if (wasHostPressed)
 	{
